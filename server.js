@@ -85,6 +85,17 @@ app.post('/monday-webhook', async (req, res) => {
     // במבנה כמו: { event: { pulseId: 12345, ... }, ... }
     console.log('Webhook received:', JSON.stringify(req.body, null, 2));
 
+// מסלול GET שמחזיר 200 לאימות
+app.get('/monday-webhook', (req, res) => {
+  res.status(200).send("OK");
+});
+
+// מסלול POST שמקבל את ה-webhook
+app.post('/monday-webhook', async (req, res) => {
+  // ...הקוד הקיים שלך...
+});
+
+
     // שלוף את ה-itemId מהנתונים (pulseId = itemId)
     const itemId = req.body.event?.pulseId;
     if (!itemId) {
