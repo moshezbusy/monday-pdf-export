@@ -9,7 +9,8 @@ app.use(bodyParser.json());
 
 // אתחול ה-SDK עם המפתח שלך
 const monday = mondaySdk();
-const API_KEY = "YOUR_MONDAY_API_KEY";
+require('dotenv').config();          // אם אתה משתמש ב-`.env` בפיתוח מקומי
+const API_KEY = process.env.API_KEY; // נטען ממשתני הסביבה
 monday.setToken(API_KEY);
 
 // פונקציית עזר - מקבלת itemId ויוצרת PDF
