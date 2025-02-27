@@ -1,7 +1,3 @@
-const axios = require('axios');
-const FormData = require('form-data');
-const fs = require('fs');
-
 const express = require('express');
 const bodyParser = require('body-parser');
 const mondaySdk = require('monday-sdk-js');
@@ -122,4 +118,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
-
