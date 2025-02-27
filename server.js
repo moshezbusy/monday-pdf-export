@@ -155,3 +155,29 @@ async function uploadPDFToMonday(itemId, filePath, columnId) {
     console.error('Error uploading file:', error.response ? error.response.data : error.message);
   }
 }
+
+async function exportItemToPDF(itemId, outputPath = './item.pdf') {
+  try {
+    // ... קוד של יצירת ה-PDF כפי שהגדרת כבר ...
+    const pdfPath = await generatePDF(itemData, outputPath);
+    console.log(`PDF file successfully created at ${pdfPath}`);
+    
+    // כעת, אחרי שה-PDF נוצר, נעלה אותו למונדיי:
+    // הנח שהעמודה בה תרצה להעלות את הקובץ נקראת "files" (או שנה בהתאם)
+    const columnId = "files";  
+    await uploadPDFToMonday(itemId, pdfPath, columnId);
+    
+    return {
+      success: true,
+      message: `PDF created and uploaded to Monday for item ${itemId}`,
+      pdfPath
+    };
+  } catch (error) {
+    console.error('Error:', error.message);
+    return {
+      success: false,
+      message: 'Failed to generate and upload PDF',
+      error: error.message
+    };
+  }
+}
