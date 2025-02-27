@@ -3,14 +3,17 @@ const bodyParser = require('body-parser');
 const mondaySdk = require('monday-sdk-js');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
+const FormData = require('form-data');
 
 const app = express();
 app.use(bodyParser.json());
 
 // אתחול ה-SDK עם המפתח שלך
 const monday = mondaySdk();
-require('dotenv').config(); // אם אתה משתמש ב-`.env` בפיתוח מקומי
-const API_KEY = process.env.API_KEY; // נטען ממשתני הסביבה
+require('dotenv').config();
+const API_KEY = process.env.API_KEY;
 monday.setToken(API_KEY);
 
 // פונקציית עזר - מקבלת itemId ויוצרת PDF
@@ -28,6 +31,7 @@ async function exportItemToPDF(itemId) {
         }
         board {
           name
+          id
         }
         group {
           title
@@ -40,12 +44,13 @@ async function exportItemToPDF(itemId) {
     
     if (!itemData) {
       console.log(`Item ${itemId} not found`);
-      return;
+      return null;
     }
     
     // 2. יצירת PDF
     const doc = new PDFDocument();
-    const filePath = `./item_${itemId}.pdf`;
+    const fileName = `item_${itemId}_${Date.now()}.pdf`;
+    const filePath = path.join(__dirname, fileName);
     const stream = fs.createWriteStream(filePath);
     
     doc.pipe(stream);
@@ -69,11 +74,47 @@ async function exportItemToPDF(itemId) {
     return new Promise((resolve) => {
       stream.on('finish', () => {
         console.log(`PDF created: ${filePath}`);
-        resolve(filePath);
+        resolve({
+          filePath,
+          fileName,
+          itemData
+        });
       });
     });
   } catch (error) {
     console.error('Error generating PDF:', error);
+    throw error;
+  }
+}
+
+// פונקציה חדשה להעלאת קובץ ל-Monday
+async function uploadFileToMonday(itemId, filePath, fileName) {
+  try {
+    const formData = new FormData();
+    formData.append('query', `mutation ($file: File!) { add_file_to_column (item_id: ${itemId}, column_id: "files", file: $file) { id } }`);
+    formData.append('variables[file]', fs.createReadStream(filePath), {
+      filename: fileName,
+      contentType: 'application/pdf'
+    });
+
+    const response = await axios({
+      method: 'post',
+      url: 'https://api.monday.com/v2',
+      headers: {
+        'Authorization': API_KEY,
+        ...formData.getHeaders()
+      },
+      data: formData
+    });
+
+    console.log('File upload response:', response.data);
+    
+    // מחיקת הקובץ המקומי לאחר העלאה
+    fs.unlinkSync(filePath);
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error uploading file to Monday:', error.response ? error.response.data : error.message);
     throw error;
   }
 }
@@ -94,11 +135,17 @@ app.post('/monday-webhook', async (req, res) => {
       return res.status(400).send('No itemId found in webhook data');
     }
     
-    // קרא לפונקציה שיוצרת PDF
-    await exportItemToPDF(itemId);
+    // הפעל את הפונקציה ליצירת PDF
+    const pdfResult = await exportItemToPDF(itemId);
+    if (!pdfResult) {
+      return res.status(404).send('Could not generate PDF - item not found');
+    }
+    
+    // העלה את הקובץ ל-Monday
+    await uploadFileToMonday(itemId, pdfResult.filePath, pdfResult.fileName);
     
     // החזר תשובה ל-Monday שהכול בסדר
-    res.status(200).send('PDF generated successfully');
+    res.status(200).send('PDF generated and uploaded successfully');
   } catch (error) {
     console.error('Error in /monday-webhook:', error);
     res.status(500).send('Server error');
