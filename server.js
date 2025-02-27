@@ -118,3 +118,40 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
+
+const axios = require('axios');
+const FormData = require('form-data');
+const fs = require('fs');
+
+async function uploadPDFToMonday(itemId, filePath, columnId) {
+  const url = 'https://api.monday.com/v2';
+
+  // הגדר את ה-GraphQL mutation להעלאת הקובץ
+  const mutation = `
+    mutation ($itemId: Int!, $columnId: String!, $file: File!) {
+      add_file_to_column(item_id: $itemId, column_id: $columnId, file: $file) {
+        id
+      }
+    }
+  `;
+  
+  // בונים את הטופס (FormData)
+  const form = new FormData();
+  form.append('query', mutation);
+  // חשוב: המשתנה "variables" מכיל את הפרמטרים (למעט הקובץ עצמו)
+  form.append('variables', JSON.stringify({ itemId, columnId }));
+  // מצרף את הקובץ
+  form.append('file', fs.createReadStream(filePath));
+
+  try {
+    const response = await axios.post(url, form, {
+      headers: {
+        ...form.getHeaders(),
+        'Authorization': process.env.API_KEY  // השתמש במפתח מ-Environment
+      }
+    });
+    console.log('File uploaded:', response.data);
+  } catch (error) {
+    console.error('Error uploading file:', error.response ? error.response.data : error.message);
+  }
+}
