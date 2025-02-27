@@ -50,6 +50,7 @@ async function exportItemToPDF(itemId) {
           id
           text
           value
+          title
         }
         board {
           name
@@ -86,7 +87,9 @@ async function exportItemToPDF(itemId) {
     
     itemData.column_values.forEach(column => {
       if (column.text) {
-        doc.fontSize(12).text(`${column.id}: ${column.text}`);
+        // שימוש בכותרת העמודה במקום ב-ID אם זמינה
+        const columnName = column.title || column.id;
+        doc.fontSize(12).text(`${columnName}: ${column.text}`);
       }
     });
     
@@ -109,7 +112,7 @@ async function exportItemToPDF(itemId) {
   }
 }
 
-// פונקציה להעלאת קובץ ל-Monday עם לוגים מפורטים
+// פונקציה מתוקנת להעלאת קובץ ל-Monday
 async function uploadFileToMonday(itemId, filePath, fileName, boardId) {
   try {
     console.log(`Attempting to upload file: ${filePath} to item: ${itemId}`);
@@ -139,53 +142,97 @@ async function uploadFileToMonday(itemId, filePath, fileName, boardId) {
       }
     }
     
-    const formData = new FormData();
-    formData.append('query', `mutation ($file: File!) { add_file_to_column (item_id: ${itemId}, column_id: "${fileColumnId}", file: $file) { id } }`);
-    
-    // קריאת הקובץ לזיכרון ושימוש בתוכן שלו
-    const fileContent = fs.readFileSync(filePath);
-    formData.append('variables[file]', fileContent, {
-      filename: fileName,
-      contentType: 'application/pdf',
-      knownLength: fileSize
-    });
-
-    console.log('Form data prepared, sending request to Monday API...');
-    
-    const response = await axios({
-      method: 'post',
-      url: 'https://api.monday.com/v2',
-      headers: {
-        'Authorization': API_KEY,
-        ...formData.getHeaders()
-      },
-      data: formData,
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity
-    });
-
-    console.log('Monday API response:', JSON.stringify(response.data));
-    
-    // בדיקה אם יש שגיאות בתשובה
-    if (response.data.errors) {
-      console.error('Monday API returned errors:', JSON.stringify(response.data.errors));
-      return null;
-    }
-    
-    // מחיקת הקובץ המקומי לאחר העלאה מוצלחת
+    // גישה ישירה לקובץ והעלאה באמצעות monday SDK
     try {
-      fs.unlinkSync(filePath);
-      console.log(`Local file ${filePath} deleted`);
-    } catch (unlinkError) {
-      console.error(`Failed to delete local file: ${unlinkError.message}`);
+      // יצירת פרמטרים לשאילתת GraphQL
+      const variables = {
+        item_id: parseInt(itemId, 10),
+        column_id: fileColumnId,
+        file: null // ייקבע על ידי ה-SDK
+      };
+      
+      // יצירת מוטציה לקובץ
+      const query = `mutation ($file: File!, $item_id: Int!, $column_id: String!) { 
+        add_file_to_column (item_id: $item_id, column_id: $column_id, file: $file) { 
+          id 
+        } 
+      }`;
+      
+      console.log('Uploading via SDK with params:', JSON.stringify(variables, null, 2));
+      
+      // שימוש ב-SDK פנימי להעלאת קובץ (הדרך המומלצת)
+      const result = await monday.api(query, {
+        variables: variables,
+        files: {
+          file: filePath
+        }
+      });
+      
+      console.log('Monday API Upload response:', JSON.stringify(result, null, 2));
+      
+      // בדיקת שגיאות
+      if (result.errors) {
+        console.error('Monday API Upload returned errors:', JSON.stringify(result.errors, null, 2));
+        throw new Error('Upload failed: ' + JSON.stringify(result.errors));
+      }
+      
+      // מחיקת הקובץ המקומי לאחר העלאה מוצלחת
+      try {
+        fs.unlinkSync(filePath);
+        console.log(`Local file ${filePath} deleted`);
+      } catch (unlinkError) {
+        console.error(`Failed to delete local file: ${unlinkError.message}`);
+      }
+      
+      return result;
+    } catch (sdkError) {
+      console.error('SDK upload failed, trying alternative method:', sdkError);
+      
+      // גישה חלופית באמצעות API ישירה
+      const formData = new FormData();
+      formData.append('query', `mutation ($file: File!) { add_file_to_column (item_id: ${itemId}, column_id: "${fileColumnId}", file: $file) { id } }`);
+      
+      const fileStream = fs.createReadStream(filePath);
+      formData.append('variables[file]', fileStream, {
+        filename: fileName,
+        contentType: 'application/pdf'
+      });
+      
+      console.log('Form data prepared, sending request to Monday API using direct API call...');
+      
+      const response = await axios({
+        method: 'post',
+        url: 'https://api.monday.com/v2',
+        headers: {
+          'Authorization': API_KEY,
+          ...formData.getHeaders()
+        },
+        data: formData
+      });
+      
+      console.log('Monday API response (alt method):', JSON.stringify(response.data, null, 2));
+      
+      if (response.data.errors) {
+        console.error('Monday API returned errors (alt method):', JSON.stringify(response.data.errors, null, 2));
+        throw new Error('Upload failed (alt method): ' + JSON.stringify(response.data.errors));
+      }
+      
+      // מחיקת הקובץ המקומי לאחר העלאה מוצלחת
+      try {
+        fs.unlinkSync(filePath);
+        console.log(`Local file ${filePath} deleted`);
+      } catch (unlinkError) {
+        console.error(`Failed to delete local file: ${unlinkError.message}`);
+      }
+      
+      return response.data;
     }
-    
-    return response.data;
   } catch (error) {
     console.error('Error uploading file to Monday:');
     if (error.response) {
-      console.error('Response data:', JSON.stringify(error.response.data));
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
       console.error('Response status:', error.response.status);
+      console.error('Response headers:', JSON.stringify(error.response.headers, null, 2));
     } else {
       console.error('Error details:', error.message);
     }
@@ -229,7 +276,7 @@ app.post('/monday-webhook', async (req, res) => {
     res.status(200).send('PDF generated and uploaded successfully');
   } catch (error) {
     console.error('Error in /monday-webhook:', error);
-    res.status(500).send('Server error');
+    res.status(500).send('Server error: ' + error.message);
   }
 });
 
@@ -244,7 +291,8 @@ app.get('/health', (req, res) => {
   res.status(200).send({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    apiKeyConfigured: !!API_KEY
   });
 });
 
@@ -285,4 +333,6 @@ app.get('/test-pdf/:itemId', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
+  console.log(`API Key configured: ${!!API_KEY}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
