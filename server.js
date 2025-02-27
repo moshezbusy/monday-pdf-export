@@ -3,13 +3,13 @@ const bodyParser = require('body-parser');
 const mondaySdk = require('monday-sdk-js');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
-require('dotenv').config();  // טוען את הקובץ .env
 
 const app = express();
 app.use(bodyParser.json());
 
 // אתחול ה-SDK עם המפתח שלך
 const monday = mondaySdk();
+require('dotenv').config(); // אם אתה משתמש ב-`.env` בפיתוח מקומי
 const API_KEY = process.env.API_KEY; // נטען ממשתני הסביבה
 monday.setToken(API_KEY);
 
@@ -17,39 +17,38 @@ monday.setToken(API_KEY);
 async function exportItemToPDF(itemId) {
   try {
     // 1. הבאת נתוני ה-item
-    const query = `
-      query {
-        items(ids: [${itemId}]) {
+    const query = `query {
+      items(ids: [${itemId}]) {
+        id
+        name
+        column_values {
           id
+          text
+          value
+        }
+        board {
           name
-          column_values {
-            id
-            text
-            value
-          }
-          board {
-            name
-          }
-          group {
-            title
-          }
+        }
+        group {
+          title
         }
       }
-    `;
+    }`;
+    
     const response = await monday.api(query);
     const itemData = response.data.items[0];
+    
     if (!itemData) {
       console.log(`Item ${itemId} not found`);
       return;
     }
-
+    
     // 2. יצירת PDF
     const doc = new PDFDocument();
     const filePath = `./item_${itemId}.pdf`;
     const stream = fs.createWriteStream(filePath);
-
+    
     doc.pipe(stream);
-
     doc.fontSize(20).text(`Item: ${itemData.name}`, { align: 'center' });
     doc.moveDown();
     doc.fontSize(14).text(`Board: ${itemData.board.name}`);
@@ -57,15 +56,15 @@ async function exportItemToPDF(itemId) {
     doc.moveDown();
     doc.fontSize(16).text('Fields:', { underline: true });
     doc.moveDown();
-
+    
     itemData.column_values.forEach(column => {
       if (column.text) {
         doc.fontSize(12).text(`${column.id}: ${column.text}`);
       }
     });
-
+    
     doc.end();
-
+    
     // מחכים שהכתיבה לקובץ תסתיים
     return new Promise((resolve) => {
       stream.on('finish', () => {
@@ -75,35 +74,40 @@ async function exportItemToPDF(itemId) {
     });
   } catch (error) {
     console.error('Error generating PDF:', error);
+    throw error;
   }
 }
 
-// הגדרת מסלול GET ל־/monday-webhook (לבדיקת URL על ידי Monday)
-app.get('/monday-webhook', (req, res) => {
-  res.status(200).send("OK");
-});
-
-// הגדרת מסלול POST ל־/monday-webhook (לטיפול אמיתי בבקשה)
+// נתיב ל-webhook - תומך גם ב-challenge וגם בבקשות רגילות
 app.post('/monday-webhook', async (req, res) => {
   try {
-    // הדפסה ללוג כדי לראות את מה שנשלח
     console.log('Webhook received:', JSON.stringify(req.body, null, 2));
     
-    // שלוף את ה-itemId מהנתונים (מצפה למבנה: { event: { pulseId: 12345 } })
+    // טיפול ב-challenge של Monday.com
+    if (req.body.challenge) {
+      return res.json({ challenge: req.body.challenge });
+    }
+    
+    // שלוף את ה-itemId מהנתונים
     const itemId = req.body.event?.pulseId;
     if (!itemId) {
       return res.status(400).send('No itemId found in webhook data');
     }
-
-    // קריאה לפונקציה שיוצרת PDF
+    
+    // קרא לפונקציה שיוצרת PDF
     await exportItemToPDF(itemId);
-
-    // החזר תשובה ל-Monday שהכל עבר בהצלחה
+    
+    // החזר תשובה ל-Monday שהכול בסדר
     res.status(200).send('PDF generated successfully');
   } catch (error) {
     console.error('Error in /monday-webhook:', error);
     res.status(500).send('Server error');
   }
+});
+
+// מסלול GET שמחזיר 200 לאימות
+app.get('/monday-webhook', (req, res) => {
+  res.status(200).send("OK");
 });
 
 // הפעלת השרת
