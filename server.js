@@ -3,13 +3,13 @@ const bodyParser = require('body-parser');
 const mondaySdk = require('monday-sdk-js');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
+require('dotenv').config();  // טוען את הקובץ .env
 
 const app = express();
 app.use(bodyParser.json());
 
 // אתחול ה-SDK עם המפתח שלך
 const monday = mondaySdk();
-require('dotenv').config();          // אם אתה משתמש ב-`.env` בפיתוח מקומי
 const API_KEY = process.env.API_KEY; // נטען ממשתני הסביבה
 monday.setToken(API_KEY);
 
@@ -78,34 +78,27 @@ async function exportItemToPDF(itemId) {
   }
 }
 
-// מסלול (endpoint) שיקבל את ה-webhook מ-Monday
-app.post('/monday-webhook', async (req, res) => {
-  try {
-    // בד"כ ב-body של הבקשה תהיה אינפורמציה על ה-item
-    // במבנה כמו: { event: { pulseId: 12345, ... }, ... }
-    console.log('Webhook received:', JSON.stringify(req.body, null, 2));
-
-// מסלול GET שמחזיר 200 לאימות
+// הגדרת מסלול GET ל־/monday-webhook (לבדיקת URL על ידי Monday)
 app.get('/monday-webhook', (req, res) => {
   res.status(200).send("OK");
 });
 
-// מסלול POST שמקבל את ה-webhook
+// הגדרת מסלול POST ל־/monday-webhook (לטיפול אמיתי בבקשה)
 app.post('/monday-webhook', async (req, res) => {
-  // ...הקוד הקיים שלך...
-});
-
-
-    // שלוף את ה-itemId מהנתונים (pulseId = itemId)
+  try {
+    // הדפסה ללוג כדי לראות את מה שנשלח
+    console.log('Webhook received:', JSON.stringify(req.body, null, 2));
+    
+    // שלוף את ה-itemId מהנתונים (מצפה למבנה: { event: { pulseId: 12345 } })
     const itemId = req.body.event?.pulseId;
     if (!itemId) {
       return res.status(400).send('No itemId found in webhook data');
     }
 
-    // קרא לפונקציה שיוצרת PDF
+    // קריאה לפונקציה שיוצרת PDF
     await exportItemToPDF(itemId);
 
-    // החזר תשובה ל-Monday שהכול בסדר
+    // החזר תשובה ל-Monday שהכל עבר בהצלחה
     res.status(200).send('PDF generated successfully');
   } catch (error) {
     console.error('Error in /monday-webhook:', error);
